@@ -1080,3 +1080,68 @@ Risk dashboard + citations + reports.
 Evaluation + error handling + security + performance improvements.
 
 Do not implement all components as fake placeholders. Each feature should have a working backend flow and a corresponding frontend experience.
+
+---
+
+# End-to-end architecture
+
+A signed-in user uploads a contract in Next.js. Next.js passes the session JWT to FastAPI. FastAPI extracts the text, chunks it by section, embeds it, and stores the vectors. Later questions, risk checks, and comparisons use those indexed pieces. The browser never holds the OpenRouter key.
+
+```mermaid
+flowchart TD
+  user[User]
+  auth["/auth signup or login"]
+  mongoUsers["MongoDB users"]
+  cookie["HTTP-only session JWT"]
+  dash[Dashboard]
+
+  user --> auth --> mongoUsers
+  auth --> cookie --> dash
+
+  dash --> upload[Upload]
+  dash --> chat[Chat]
+  dash --> risk[Risk scan]
+  dash --> suggest[Suggest]
+  dash --> compare[Compare]
+
+  upload --> nextUp["POST /api/upload"]
+  nextUp --> merge["Merge multiple PDFs if needed"]
+  merge --> ingest["POST /documents/upload"]
+
+  ingest --> extract["Extract page text"]
+  extract --> ocr["OCR only if a page is almost empty"]
+  ocr --> chunk["Section chunks with page and section"]
+  chunk --> embed["OpenRouter embeddings"]
+  embed --> qdrant["Qdrant vectors filtered by user and document"]
+  chunk --> mongoDoc["MongoDB document, pages, and chunks"]
+  qdrant --> ready[Status ready]
+  mongoDoc --> ready
+  ready --> chat
+
+  chat --> nextChat["POST /api/chat"]
+  nextChat --> rag["Embed question and search Qdrant"]
+  rag --> none{"Relevant chunks?"}
+  none -->|No| insufficient["Say the contract does not contain enough information"]
+  none -->|Yes| llm["OpenRouter answers from those chunks only"]
+  llm --> cites["Answer plus page and section"]
+  cites --> save["POST /api/chat/save"]
+  save --> mongoChat["MongoDB conversations"]
+
+  risk --> nextRisk["POST /api/risk"]
+  suggest --> nextSug["POST /api/suggest"]
+  nextRisk --> clauses["Structured clause extraction"]
+  nextSug --> clauses
+  clauses --> rules["Deterministic risk rules"]
+  rules --> score["Score from rule weights, with evidence"]
+  rules --> templates["Safer wording templates"]
+
+  compare --> nextCmp["POST /api/compare"]
+  nextCmp --> both["Extract and embed clauses from both files"]
+  both --> pair["Pair by similarity"]
+  pair --> label["Unchanged, modified, material, added, or removed"]
+
+  apiOnly["Not on the current screens"]
+  apiOnly --> policy["POST /contracts/id/compliance"]
+  apiOnly --> graph["POST /contracts/id/analyze"]
+  graph --> stages["Clauses, then risk, then compliance, then summary"]
+```
